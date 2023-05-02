@@ -1,6 +1,9 @@
 import numpy as np
 import random
-import WordleAgent
+import WordleAgent as wa
+from WordleAgent import WordleAgent
+from sklearn import linear_model
+
 
 def get_dict():
     dictionary = open('wordle_dictionary.txt', 'r')
@@ -35,7 +38,29 @@ class WordleProblem():
                     grey_letters.add(guess[i])
         return green_tuples, yellow_tuples, grey_letters
 
-prob = WordleProblem()
-agent = WordleAgent.WordleAgent()
+def scheme(model):
+    guesses1 = 0
+    guesses2 = 0
+    for i in range(100):
+        print('Test Number', i)
+        prob = WordleProblem()
+        agent1 = WordleAgent()
+        agent2 = WordleAgent()
 
-agent.problem_interface_not_human(prob)
+        guesses1 += agent1.problem_interface_no_print(prob)
+
+        guesses2 += agent2.problem_interface_regress(prob, model)
+
+
+
+    return (guesses1 / 100), (guesses2 / 100)
+
+
+
+model = wa.train_regress(WordleProblem())
+print('Model Trained')
+
+val1, val2 = scheme(model)
+print('Random gets score of: ', val1)
+
+print('Regression gets score of: ', val2)

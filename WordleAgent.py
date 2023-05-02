@@ -1,6 +1,8 @@
 import numpy as np
 import random
-
+from sklearn import linear_model
+import random
+#from xgboost import XGBRegressor
 def get_dict():
     dictionary = open('wordle_dictionary.txt', 'r')
     dictSet = set()
@@ -19,6 +21,35 @@ def get_letter_count(wordSet):
             else:
                 letter_count[letter] = letter_count[letter] + 1
     return letter_count
+
+def train_regress(prob):
+    dictionary = dict()
+
+    for i in range(10000):
+        #print('Training Step ', i)
+        agent = WordleAgent()
+
+        pairs = agent.problem_interface_get_info(prob)
+
+        for item in pairs:
+            string, discards = item[0], item[1]
+            if string not in dictionary.keys():
+                dictionary[string] = []
+            dictionary[string].append(discards)
+
+    X = []
+    Y = []
+    for string in dictionary.keys():
+        dictionary[string] = np.mean(dictionary[string])
+        X.append(agent.encodeWord(string))
+        Y.append(dictionary[string])
+    X = np.asarray(X)
+    Y = np.asarray(Y)
+
+    regr = linear_model.LinearRegression()
+    #regr = XGBRegressor()
+    regr.fit(X, Y)
+    return regr    
 
 class WordleAgent():
 
@@ -40,23 +71,34 @@ class WordleAgent():
             self.grey_letters.add(grey)
         
     def augment_possible_answers(self, guess):
+        total = len(self.current_dictionary)
         newDict = self.current_dictionary.copy()
         for item in self.current_dictionary:
+            remove = False
+            val = 0
             for tup in self.green_tuples:
                 letter, index = tup[0], tup[1]
                 if item[index] != letter:
-                    newDict.discard(item)
+                    remove = True
+                    val += 2
             
             for tup in self.yellow_tuples:
                 letter, index = tup[0], tup[1]
                 if letter not in item:
-                    newDict.discard(item)
+                    remove = True
+                    val += 5
 
             for letter in self.grey_letters:
                 if letter in item:
                     newDict.discard(item)
+                    remove = True
+                    val += 10
+
+            if remove:
+                newDict.discard(item)
         newDict.discard(guess)
         self.current_dictionary= newDict
+        return val * (1-(total/len(self.original_dictionary)))
 
 
     ## These guess functions only choose from a space of possible answers
@@ -82,7 +124,8 @@ class WordleAgent():
 
     def problem_interface_not_human(self, wordleProblem):
         print('Welcome to WordleBot')
-        guess = self.make_guess_random()
+        #guess = self.make_guess_random()
+        guess = self.make_guess_choice()
         guessCount = 1
         while not wordleProblem.isCorrect(guess):
             print('Guess: ', guess)
@@ -94,4 +137,71 @@ class WordleAgent():
         print('Guess: ', guess)
         print(guess, ' is correct!')
         print('Solved in ', guessCount, ' guesses!')
+        return guessCount
     
+    def problem_interface_no_print(self, wordleProblem):
+        guess = self.make_guess_random()
+        guessCount = 1
+        while not wordleProblem.isCorrect(guess):
+            tuples = wordleProblem.get_information(guess)
+            self.augment_information(tuples)
+            self.augment_possible_answers(guess)
+            guess = self.make_guess_random()
+            guessCount += 1
+        return guessCount
+    
+    def encodeWord(self, guess):
+        arrays = np.zeros(1)
+        alphabet = 'abcdefghijklmnopqrstuvwxyz'
+        for letter in guess:
+            letter_num = alphabet.index(letter)
+            one_hot = np.zeros(26)
+            one_hot[letter_num] = 1
+            arrays = np.concatenate((arrays, one_hot), axis =0)
+        return arrays
+
+
+    
+    def problem_interface_get_info(self, wordleProblem):
+        #print('Welcome to WordleBot')
+        guess = self.make_guess_random()
+        guessCount = 1
+        tups = set()
+        while not wordleProblem.isCorrect(guess):
+            #print('Guess: ', guess)
+            tuples = wordleProblem.get_information(guess)
+            self.augment_information(tuples)
+            discards = self.augment_possible_answers(guess)
+            guess = self.make_guess_random()
+            guessCount += 1
+            tups.add((guess, discards))
+        #print('Guess: ', guess)
+        #print(guess, ' is correct!')
+        #print('Solved in ', guessCount, ' guesses!')
+        return tups
+    
+    def make_guess_regress(self, regr):
+        guess, score = None, -1*np.inf
+        for item in self.current_dictionary:
+            word = self.encodeWord(item).reshape(1,-1)
+            newScore = regr.predict(word)
+            if newScore > score:
+                guess = item
+                score = newScore
+        return guess
+
+    def problem_interface_regress(self, wordleProblem, regr):        
+        guess = self.make_guess_regress(regr)
+       
+        guessCount = 1
+        while not wordleProblem.isCorrect(guess):
+            tuples = wordleProblem.get_information(guess)
+            self.augment_information(tuples)
+            self.augment_possible_answers(guess)
+            num = random.random()
+            if num > 0.4:
+                guess = self.make_guess_regress(regr)
+            else:
+                guess = self.make_guess_random()
+            guessCount += 1
+        return guessCount
